@@ -4,13 +4,16 @@ import * as THREE from "three";
 import * as CANNON from "cannon-es";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import Stats from "three/addons/libs/stats.module.js";
-import { createBouncingBall } from './Ball'
-import Soccer from "../../public/Soccer.jpg";
-
 
 const SetUp: React.FC = () => {
   const ref = useRef<HTMLDivElement>(null);
   const statsDiv = useRef<HTMLDivElement>(null);
+
+  interface SpringParams {
+    restLength: number;
+    stiffness: number;
+    damping: number;
+  }
 
   useEffect(() => {
     const currentRef = ref.current;
@@ -27,28 +30,8 @@ const SetUp: React.FC = () => {
       0.1,
       1000
     );
-    const updateCamera = () => {
-      let avgX = 0;
-      let avgY = 0;
-      let avgZ = 0;
-      const numParticles = sParticleBodyArray.length;
-
-      for (let i = 0; i < numParticles; i++) {
-        const position = sParticleBodyArray[i].position;
-        avgX += position.x;
-        avgY += position.y;
-        avgZ += position.z;
-      }
-
-      avgX /= numParticles;
-      avgY /= numParticles;
-      avgZ /= numParticles;
-
-      camera.position.set(avgX , avgY + 10, avgZ + 10);
-      camera.lookAt(avgX, avgY, avgZ);
-    };
-    // camera.position.set(5, 15, 5);
-    // camera.lookAt(0, 0, 0);
+    camera.position.set(5, 15, 5);
+    camera.lookAt(0, 0, 0);
 
     //renderer
     const renderer = new THREE.WebGLRenderer();
@@ -58,7 +41,7 @@ const SetUp: React.FC = () => {
     //light
     const light = new THREE.AmbientLight(0x404040);
     scene.add(light);
-    const spotLight = new THREE.SpotLight("white", 100);
+    const spotLight = new THREE.SpotLight("yellow", 100);
     scene.add(spotLight);
 
     const lightHelper = new THREE.AmbientLight();
@@ -162,14 +145,11 @@ const SetUp: React.FC = () => {
       );
       sphereGeometry.computeVertexNormals();
 
-      const textureLoader = new THREE.TextureLoader()
-      const texture = textureLoader.load(Soccer.src, ()=>{
-        renderer.render(scene, camera);
-      })
-      console.log(texture)
-      const material = new THREE.MeshBasicMaterial({
-        map:texture,
+      const material = new THREE.MeshPhongMaterial({
+        color: "purple",
         side: THREE.DoubleSide,
+        specular: 0x555555,
+        shininess: 30,
         // wireframe: true,
       });
 
@@ -188,24 +168,15 @@ const SetUp: React.FC = () => {
 
       const sphereShape = new CANNON.Sphere(radius);
       const sphereBody2 = new CANNON.Body({
-        mass: 0,
+        mass: 9,
         position: new CANNON.Vec3(0, 5, 0),
       });
       sphereBody2.addShape(sphereShape);
-      // world.addBody(sphereBody2);
+        world.addBody(sphereBody2);
       return { sphereMesh2, sphereBody2 };
     }
 
     const { sphereMesh2, sphereBody2 } = createCustomSphere(scene, world);
-
-    const { update: updateBouncingBall } = createBouncingBall(
-      scene,
-      world,
-      1, 
-      new THREE.Vector3(5, 1, 0), 
-      new THREE.Vector3(-10, 0, 0), 
-      1 
-    );
 
     //create particle, sp for short
     const radius = 0.0125;
@@ -246,7 +217,7 @@ const SetUp: React.FC = () => {
           positionVector.y,
           positionVector.z
         ),
-        quaternion: quaternion.clone(), 
+        quaternion: quaternion.clone(), // Apply the rotation
       });
       sParticles[`${i}`] = sParticleBody;
       world.addBody(sParticleBody);
@@ -259,7 +230,7 @@ const SetUp: React.FC = () => {
         positionVector.y,
         positionVector.z
       );
-      sParticleMesh.quaternion.copy(quaternion); 
+      sParticleMesh.quaternion.copy(quaternion); // Apply the rotation to the mesh
       scene.add(sParticleMesh);
       sParticleMeshArray.push(sParticleMesh);
       // console.log(sParticles);
@@ -515,6 +486,38 @@ const SetUp: React.FC = () => {
       }
     }
 
+    //spring
+    function particleSpring(
+      particles: { [key: string]: CANNON.Body } = {},
+      center: CANNON.Body,
+      springParams: SpringParams
+    ) {
+      const springs: CANNON.Spring[] = [];
+      Object.values(particles).forEach((particle) => {
+        const spring = new CANNON.Spring(center, particle, {
+          restLength: springParams.restLength,
+          stiffness: springParams.stiffness,
+          damping: springParams.damping,
+        });
+        springs.push(spring);
+      });
+      return springs;
+    }
+
+    // center body
+    const centerBody = new CANNON.Body({
+      mass: 5,
+      position: new CANNON.Vec3(0, 5, 0),
+    });
+
+    world.addBody(centerBody);
+
+    // const springs = particleSpring(sParticles, centerBody, {
+    //   restLength: 0.4,
+    //   stiffness: 100,
+    //   damping: 1,
+    // });
+
     // sphere
     function updateSphereVertices(
       sphereMesh: THREE.Mesh,
@@ -561,44 +564,21 @@ const SetUp: React.FC = () => {
     );
     world.addBody(groundBody);
 
-    //wall
-    const massWall = 0;
-    const wallWidth = 10;
-    const wallHeight = 10;
-    const wallDepth = 1;
-    const wallGeo = new THREE.BoxGeometry(wallWidth, wallHeight, wallDepth);
-    const wallMat = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      side: THREE.DoubleSide,
-      opacity:0.1,
-      transparent:true
-      // wireframe: true,
-    });
-    const wallMesh = new THREE.Mesh(wallGeo, wallMat);
-    scene.add(wallMesh);
-    wallMesh.position.set(0, 0, 10);
-
-    //body
-    const wallShape = new CANNON.Box(
-      new CANNON.Vec3(wallWidth / 2, wallHeight / 2, wallDepth / 2)
-    );
-    const wallBody = new CANNON.Body({
-      mass: massWall,
-    });
-    wallBody.addShape(wallShape);
-    wallBody.position.set(0, 0, 10);
-    world.addBody(wallBody);
+    // world.addEventListener("postStep", () => {
+    //   springs.forEach((spring) => {
+    //     spring.applyForce();
+    //   });
+    // });
 
     const keysFunction = {
       w: false,
       a: false,
       s: false,
       d: false,
-      space: false,
     };
-    const forceMagnitude = 5;
+
+    const forceMagnitude = 1; 
     const torqueMagnitude = 1;
-    const jumpForce = 5;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       switch (event.key) {
@@ -613,9 +593,6 @@ const SetUp: React.FC = () => {
           break;
         case "d":
           keysFunction.d = true;
-          break;
-        case " ":
-          keysFunction.space = true;
           break;
       }
     };
@@ -634,52 +611,11 @@ const SetUp: React.FC = () => {
         case "d":
           keysFunction.d = false;
           break;
-        case " ":
-          keysFunction.space = false;
-          break;
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("keyup", handleKeyUp);
-
-    const applyForces = () => {
-      for (let i = 0; i < sParticleBodyArray.length; i++) {
-        const body = sParticleBodyArray[i];
-
-        if (keysFunction.w) {
-          body.applyForce(
-            new CANNON.Vec3(0, 0, -forceMagnitude),
-            body.position
-          );
-          body.applyTorque(new CANNON.Vec3(-torqueMagnitude, 0, 0));
-        }
-        if (keysFunction.s) {
-          body.applyForce(new CANNON.Vec3(0, 0, forceMagnitude), body.position);
-          body.applyTorque(new CANNON.Vec3(torqueMagnitude, 0, 0));
-        }
-        if (keysFunction.a) {
-          body.applyForce(
-            new CANNON.Vec3(-forceMagnitude, 0, 0),
-            body.position
-          );
-          body.applyTorque(new CANNON.Vec3(0, 0, torqueMagnitude));
-        }
-        if (keysFunction.d) {
-          body.applyForce(new CANNON.Vec3(forceMagnitude, 0, 0), body.position);
-          body.applyTorque(new CANNON.Vec3(0, 0, -torqueMagnitude));
-        }
-        if (keysFunction.space) {
-          body.velocity.set(0, body.velocity.y, 0);
-          body.angularVelocity.set(0, 0, 0);
-          body.applyImpulse(new CANNON.Vec3(0, jumpForce, 0), body.position);
-        }
-
-        // scale to reduce damping
-        body.velocity.scale(0.95, body.velocity);
-        body.angularVelocity.scale(0.95, body.angularVelocity);
-      }
-    };
 
     //Resize
     const onWindowResize = () => {
@@ -688,6 +624,47 @@ const SetUp: React.FC = () => {
       renderer.setSize(window.innerWidth, window.innerHeight);
     };
     window.addEventListener("resize", onWindowResize);
+
+    // Function to visualize constraints
+    function visualizeConstraints(
+      particles: { [key: string]: CANNON.Body } = {},
+      constraints: CANNON.Constraint[],
+      scene: THREE.Scene
+    ) {
+      // Material for the constraint lines
+      const material = new THREE.LineBasicMaterial({ color: 0x00ff00 });
+
+      // Remove previous lines if any
+      scene.children = scene.children.filter(
+        (child) => !(child instanceof THREE.Line)
+      );
+
+      // Iterate over each constraint
+
+      Object.values(constraints).forEach((constraint) => {
+        const geometry = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(
+            constraint.bodyA.position.x,
+            constraint.bodyA.position.y,
+            constraint.bodyA.position.z
+          ),
+          new THREE.Vector3(
+            constraint.bodyB.position.x,
+            constraint.bodyB.position.y,
+            constraint.bodyB.position.z
+          ),
+        ]);
+
+        // Create a line to represent the constraint
+        const line = new THREE.Line(geometry, material);
+        scene.add(line);
+      });
+    }
+    // visualizeConstraints(
+    //   sParticles,
+    //   world.constraints as CANNON.Constraint[],
+    //   scene
+    // );
 
     // Animation loop
     const animate = () => {
@@ -699,30 +676,61 @@ const SetUp: React.FC = () => {
       //   sphereMesh2.quaternion.copy(sphereBody2.quaternion);
 
       //force
-      // const force = 1;
-      // const direction = new CANNON.Vec3(0,0,0);
-      // if (keysFunction.w) {
-      //   direction.z -= force;
-      // }
-      // if (keysFunction.a) {
-      //   direction.x -= force;
-      // }
-      // if (keysFunction.s) {
-      //   direction.z += force;
-      // }
-      // if (keysFunction.d) {
-      //   direction.x += force;
-      // }
-      applyForces();
+    if (keysFunction.w) {
+        for (let i = 0; i < sParticleBodyArray.length; i++) {
+            sParticleBodyArray[i].applyForce(
+            new CANNON.Vec3(0, 0, -forceMagnitude),
+            sParticleBodyArray[i].position
+          );
+          sParticleBodyArray[i].applyTorque(
+            new CANNON.Vec3(-torqueMagnitude, 0, 0)
+          );
+        }
+        keysFunction.w = false;
+      }
+      if (keysFunction.s) {
+        for (let i = 0; i < sParticleBodyArray.length; i++) {
+          sParticleBodyArray[i].applyForce(
+            new CANNON.Vec3(0, 0, forceMagnitude),
+            sParticleBodyArray[i].position
+          );
+          sParticleBodyArray[i].applyTorque(
+            new CANNON.Vec3(torqueMagnitude, 0, 0)
+          );
+        }
+        keysFunction.s = false;
+      }
+      if (keysFunction.a) {
+        for (let i = 0; i < sParticleBodyArray.length; i++) {
+          sParticleBodyArray[i].applyForce(
+            new CANNON.Vec3(-forceMagnitude, 0, 0),
+            sParticleBodyArray[i].position
+          );
+          sParticleBodyArray[i].applyTorque(
+            new CANNON.Vec3(0, 0, torqueMagnitude)
+          );
+        }
+        keysFunction.a = false;
+      }
+      if (keysFunction.d) {
+        for (let i = 0; i < sParticleBodyArray.length; i++) {
+          sParticleBodyArray[i].applyForce(
+            new CANNON.Vec3(forceMagnitude, 0, 0),
+            sParticleBodyArray[i].position
+          );
+          sParticleBodyArray[i].applyTorque(
+            new CANNON.Vec3(0, 0, -torqueMagnitude)
+          );
+        }
+        keysFunction.d = false;
+      }
+    
       world.step(1 / 60);
 
       updateSphereVertices(sphereMesh2, sParticles);
 
-      updateBouncingBall();
+      
 
-      updateCamera();
-
-      // sphereBody2.applyLocalForce(direction, new CANNON.Vec3(0, 0, 0))
 
       stats.begin();
       stats.end();
@@ -740,125 +748,6 @@ const SetUp: React.FC = () => {
       }
     };
     animate();
-    const wallThickness = 1;
-    const wallHeight2 = 10;
-    const wallLength = 50;
-    const wallMaterial = new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      side: THREE.DoubleSide,
-      opacity: 0.1,
-      transparent: true
-    });
-
-    // 墙体几何体
-    const createWall = (width: number, height: number, depth: number) => {
-      return new THREE.BoxGeometry(width, height, depth);
-    };
-
-    // 墙体的位置
-    const createWallMesh = (
-      geometry: THREE.BoxGeometry,
-      x: number,
-      y: number,
-      z: number,
-      rotationY: number
-    ) => {
-      const wallMesh = new THREE.Mesh(geometry, wallMaterial);
-      wallMesh.position.set(x, y, z);
-      wallMesh.rotation.y = rotationY;
-      return wallMesh;
-    };
-
-    // 创建并添加四面墙体
-    const wallGeometry1 = createWall(wallLength, wallHeight2, wallThickness); // 南北向墙
-    const wallGeometry2 = createWall(wallThickness, wallHeight2, wallLength); // 东西向墙
-
-    const wall1 = createWallMesh(
-      wallGeometry1,
-      0,
-      wallHeight2 / 2,
-      wallLength / 2,
-      0
-    ); // 北墙
-    const wall2 = createWallMesh(
-      wallGeometry1,
-      0,
-      wallHeight2 / 2,
-      -wallLength / 2,
-      0
-    ); // 南墙
-    const wall3 = createWallMesh(
-      wallGeometry2,
-      wallLength / 2,
-      wallHeight2 / 2,
-      0,
-      Math.PI
-    ); // 东墙
-    const wall4 = createWallMesh(
-      wallGeometry2,
-      -wallLength / 2,
-      wallHeight2 / 2,
-      0,
-      Math.PI
-    ); // 西墙
-
-    scene.add(wall1);
-    scene.add(wall2);
-    scene.add(wall3);
-    scene.add(wall4);
-
-    // 添加物理墙体
-    const addPhysicalWall = (
-      width: number,
-      height: number,
-      depth: number,
-      x: number,
-      y: number,
-      z: number
-    ) => {
-      const shape = new CANNON.Box(
-        new CANNON.Vec3(width / 2, height / 2, depth / 2)
-      );
-      const body = new CANNON.Body({
-        mass: 0, // 静止物体
-        position: new CANNON.Vec3(x, y, z),
-        shape: shape,
-      });
-      world.addBody(body);
-    };
-
-    addPhysicalWall(
-      wallLength,
-      wallHeight2,
-      wallThickness,
-      0,
-      wallHeight2 / 2,
-      wallLength / 2
-    );
-    addPhysicalWall(
-      wallLength,
-      wallHeight2,
-      wallThickness,
-      0,
-      wallHeight2 / 2,
-      -wallLength / 2
-    );
-    addPhysicalWall(
-      wallThickness,
-      wallHeight2,
-      wallLength,
-      wallLength / 2,
-      wallHeight2 / 2,
-      0
-    );
-    addPhysicalWall(
-      wallThickness,
-      wallHeight2,
-      wallLength,
-      -wallLength / 2,
-      wallHeight2 / 2,
-      0
-    );
 
     return () => {
       window.removeEventListener("resize", onWindowResize);
